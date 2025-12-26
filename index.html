@@ -131,9 +131,10 @@
         sunLight.shadow.camera.top = 100;
         sunLight.shadow.camera.bottom = -100;
         scene.add(sunLight);
+        scene.add(sunLight.target); // For following player
 
-        // Ground
-        const groundGeometry = new THREE.PlaneGeometry(200, 200);
+        // Ground (large, follows player)
+        const groundGeometry = new THREE.PlaneGeometry(1000, 1000);
         const groundMaterial = new THREE.MeshStandardMaterial({
             color: 0x3d5c3d,
             roughness: 0.8
@@ -143,10 +144,131 @@
         ground.receiveShadow = true;
         scene.add(ground);
 
-        // Grid helper for reference
-        const gridHelper = new THREE.GridHelper(200, 50, 0x444444, 0x333333);
+        // Grid helper for reference (follows player)
+        const gridHelper = new THREE.GridHelper(1000, 250, 0x444444, 0x333333);
         gridHelper.position.y = 0.01;
         scene.add(gridHelper);
+
+        // Procedural generation system
+        const CHUNK_SIZE = 50;
+        const RENDER_DISTANCE = 3; // chunks
+        const generatedChunks = new Set();
+        const chunkObjects = new Map(); // chunk key -> array of objects
+
+        // Seeded random for consistent procedural generation
+        function seededRandom(seed) {
+            const x = Math.sin(seed * 12.9898 + seed * 78.233) * 43758.5453;
+            return x - Math.floor(x);
+        }
+
+        function getChunkKey(cx, cz) {
+            return `${cx},${cz}`;
+        }
+
+        // Shared geometries and materials for procedural objects
+        const procRockGeometry = new THREE.DodecahedronGeometry(1.5);
+        const procRockMaterial = new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 0.9 });
+        const procTrunkGeometry = new THREE.CylinderGeometry(0.3, 0.4, 2);
+        const procTrunkMaterial = new THREE.MeshStandardMaterial({ color: 0x4a3520 });
+        const procFoliageGeometry = new THREE.ConeGeometry(2, 4, 8);
+        const procFoliageMaterial = new THREE.MeshStandardMaterial({ color: 0x228b22 });
+
+        function generateChunk(cx, cz) {
+            const key = getChunkKey(cx, cz);
+            if (generatedChunks.has(key)) return;
+            generatedChunks.add(key);
+
+            const objects = [];
+            const baseX = cx * CHUNK_SIZE;
+            const baseZ = cz * CHUNK_SIZE;
+            const seed = cx * 10000 + cz;
+
+            // Generate trees (2-4 per chunk)
+            const numTrees = 2 + Math.floor(seededRandom(seed) * 3);
+            for (let i = 0; i < numTrees; i++) {
+                const tx = baseX + seededRandom(seed + i * 100) * CHUNK_SIZE;
+                const tz = baseZ + seededRandom(seed + i * 100 + 50) * CHUNK_SIZE;
+
+                const trunk = new THREE.Mesh(procTrunkGeometry, procTrunkMaterial);
+                trunk.position.set(tx, 1, tz);
+                trunk.castShadow = true;
+                scene.add(trunk);
+                objects.push(trunk);
+
+                const foliage = new THREE.Mesh(procFoliageGeometry, procFoliageMaterial);
+                foliage.position.set(tx, 4, tz);
+                foliage.castShadow = true;
+                scene.add(foliage);
+                objects.push(foliage);
+            }
+
+            // Generate rocks (1-3 per chunk)
+            const numRocks = 1 + Math.floor(seededRandom(seed + 500) * 3);
+            for (let i = 0; i < numRocks; i++) {
+                const rx = baseX + seededRandom(seed + i * 200 + 1000) * CHUNK_SIZE;
+                const rz = baseZ + seededRandom(seed + i * 200 + 1050) * CHUNK_SIZE;
+
+                const rock = new THREE.Mesh(procRockGeometry, procRockMaterial);
+                rock.position.set(rx, 0.8, rz);
+                const rs = seededRandom(seed + i * 200 + 1100);
+                rock.rotation.set(rs * 6, rs * 4, rs * 5);
+                rock.scale.set(0.5 + rs * 0.5, 0.5 + rs * 0.5, 0.5 + rs * 0.5);
+                rock.castShadow = true;
+                scene.add(rock);
+                objects.push(rock);
+            }
+
+            // Generate glitch zone (15% chance per chunk, not in center chunks)
+            if (seededRandom(seed + 2000) < 0.15 && (Math.abs(cx) > 1 || Math.abs(cz) > 1)) {
+                const gx = baseX + CHUNK_SIZE / 2 + (seededRandom(seed + 2100) - 0.5) * 20;
+                const gz = baseZ + CHUNK_SIZE / 2 + (seededRandom(seed + 2200) - 0.5) * 20;
+                const gw = 3 + seededRandom(seed + 2300) * 4;
+                const gd = 3 + seededRandom(seed + 2400) * 4;
+                const gh = 2 + seededRandom(seed + 2500) * 4;
+
+                const glitchGroup = createGlitchZone(gx, gz, gw, gd, gh);
+                scene.add(glitchGroup);
+                objects.push(glitchGroup);
+            }
+
+            chunkObjects.set(key, objects);
+        }
+
+        function removeChunk(cx, cz) {
+            const key = getChunkKey(cx, cz);
+            if (!chunkObjects.has(key)) return;
+
+            const objects = chunkObjects.get(key);
+            objects.forEach(obj => {
+                scene.remove(obj);
+                // Remove from glitchZones if it's a glitch zone
+                const idx = state.glitchZones.findIndex(z => z.mesh === obj);
+                if (idx !== -1) state.glitchZones.splice(idx, 1);
+            });
+            chunkObjects.delete(key);
+            generatedChunks.delete(key);
+        }
+
+        function updateChunks(playerX, playerZ) {
+            const playerCX = Math.floor(playerX / CHUNK_SIZE);
+            const playerCZ = Math.floor(playerZ / CHUNK_SIZE);
+
+            // Generate nearby chunks
+            for (let dx = -RENDER_DISTANCE; dx <= RENDER_DISTANCE; dx++) {
+                for (let dz = -RENDER_DISTANCE; dz <= RENDER_DISTANCE; dz++) {
+                    generateChunk(playerCX + dx, playerCZ + dz);
+                }
+            }
+
+            // Remove far chunks
+            for (const key of generatedChunks) {
+                const [cx, cz] = key.split(',').map(Number);
+                if (Math.abs(cx - playerCX) > RENDER_DISTANCE + 1 ||
+                    Math.abs(cz - playerCZ) > RENDER_DISTANCE + 1) {
+                    removeChunk(cx, cz);
+                }
+            }
+        }
 
         // Create Tank (simplified box tank)
         function createTank() {
@@ -254,54 +376,13 @@
             return group;
         }
 
-        // Create environment
+        // Create environment (just center glitch zone, rest is procedural)
         function createEnvironment() {
-            // Add several glitch zones around the map
-            scene.add(createGlitchZone(0, 0, 4, 4, 2)); // Center structure
-            scene.add(createGlitchZone(-20, -15, 6, 3, 4)); // Left structure
-            scene.add(createGlitchZone(25, 10, 3, 6, 3)); // Right structure
-            scene.add(createGlitchZone(15, -25, 5, 5, 5)); // Far structure
-            scene.add(createGlitchZone(-30, 20, 4, 8, 3)); // Another structure
+            // Add center glitch zone as a landmark
+            scene.add(createGlitchZone(0, 0, 4, 4, 2));
 
-            // Add some decorative rocks
-            const rockGeometry = new THREE.DodecahedronGeometry(1.5);
-            const rockMaterial = new THREE.MeshStandardMaterial({ color: 0x666666, roughness: 0.9 });
-
-            const rockPositions = [
-                [-10, 5], [12, -8], [-25, -5], [30, -20], [-15, 25]
-            ];
-
-            rockPositions.forEach(([x, z]) => {
-                const rock = new THREE.Mesh(rockGeometry, rockMaterial);
-                rock.position.set(x, 0.8, z);
-                rock.rotation.set(Math.random(), Math.random(), Math.random());
-                rock.scale.set(0.5 + Math.random(), 0.5 + Math.random(), 0.5 + Math.random());
-                rock.castShadow = true;
-                scene.add(rock);
-            });
-
-            // Add trees (simple cones)
-            const trunkGeometry = new THREE.CylinderGeometry(0.3, 0.4, 2);
-            const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x4a3520 });
-            const foliageGeometry = new THREE.ConeGeometry(2, 4, 8);
-            const foliageMaterial = new THREE.MeshStandardMaterial({ color: 0x228b22 });
-
-            const treePositions = [
-                [-40, 0], [-35, 15], [-45, -20], [40, 5], [45, -15], [35, 25],
-                [-20, 40], [20, -40], [-40, -35], [40, 35]
-            ];
-
-            treePositions.forEach(([x, z]) => {
-                const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
-                trunk.position.set(x, 1, z);
-                trunk.castShadow = true;
-                scene.add(trunk);
-
-                const foliage = new THREE.Mesh(foliageGeometry, foliageMaterial);
-                foliage.position.set(x, 4, z);
-                foliage.castShadow = true;
-                scene.add(foliage);
-            });
+            // Generate initial chunks around spawn
+            updateChunks(0, 30);
         }
 
         // Initialize
@@ -605,9 +686,20 @@
                 flyingStatusDisplay.innerHTML = '';
             }
 
-            // Keep tank in bounds
-            state.tank.position.x = Math.max(-95, Math.min(95, state.tank.position.x));
-            state.tank.position.z = Math.max(-95, Math.min(95, state.tank.position.z));
+            // Update procedural world (infinite terrain)
+            updateChunks(state.tank.position.x, state.tank.position.z);
+
+            // Move ground and grid to follow player (seamless infinite ground)
+            ground.position.x = state.tank.position.x;
+            ground.position.z = state.tank.position.z;
+            gridHelper.position.x = state.tank.position.x;
+            gridHelper.position.z = state.tank.position.z;
+
+            // Move sun light to follow player for consistent shadows
+            sunLight.position.x = state.tank.position.x + 50;
+            sunLight.position.z = state.tank.position.z + 50;
+            sunLight.target.position.copy(state.tank.position);
+            sunLight.target.updateMatrixWorld();
 
             renderer.render(scene, camera);
         }
