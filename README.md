@@ -25,3 +25,13 @@ Open `index.html` in a browser.
 ## Mechanics
 
 The bunnyhopping system uses exponential speed growth. Each successful bhop multiplies your speed by 1.15x plus a base boost. The longer your chain, the faster you accelerate.
+
+## Inspiration
+
+This game combines mechanics from two classic game glitches:
+
+### Flying Tank Glitch (World of Tanks)
+A physics bug where tanks could be launched hundreds of meters into the air. Driving over destroyed tank turrets or hitting certain terrain geometry would cause the physics engine to "spaz out," sending tanks flying across the map. The glitch appeared on maps like Kharkov and Pearl River.
+
+### Accelerated Back Hopping (Half-Life 2)
+ABH is the main speedrunning movement technique in Source engine games. It works because Valve's speed cap applies force opposite to your *viewing* direction rather than your *movement* direction. When moving backwards while jumping, the game's attempt to slow you down actually accelerates you exponentially. After just 2 jumps, players reach 1333 units per second. This glitch was intentionally left in single-player by Valve and is used extensively in speedruns like "Half-Life 2 Done With a High Magnitude of Velocity."
