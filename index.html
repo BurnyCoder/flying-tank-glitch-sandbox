@@ -101,6 +101,7 @@
         const BHOP_SPEED_BOOST = 3;         // Speed added per successful bhop
         const BHOP_MAX_SPEED = 60;          // Maximum bhop speed cap
         const BHOP_DECAY = 0.97;            // Speed decay when not bhopping
+        const AIR_CONTROL = 0.5;            // Air strafe/turn multiplier (0-1)
 
         // Scene Setup
         const scene = new THREE.Scene();
@@ -431,6 +432,27 @@
                 // Bunnyhopping - Jump when spacebar is pressed/held
                 if (state.keys[' ']) {
                     state.jumpQueued = true;
+                }
+            }
+
+            // Air control - allow turning and strafing while airborne
+            if (!state.onGround && !state.launchPending) {
+                // Air turning
+                if (state.keys['a']) state.tank.rotation.y += TANK_TURN_SPEED * AIR_CONTROL * deltaTime;
+                if (state.keys['d']) state.tank.rotation.y -= TANK_TURN_SPEED * AIR_CONTROL * deltaTime;
+
+                // Air strafing - add velocity in movement direction
+                const airMoveDir = new THREE.Vector3();
+                if (state.keys['w']) airMoveDir.z = -1;
+                if (state.keys['s']) airMoveDir.z = 1;
+
+                if (airMoveDir.length() > 0) {
+                    airMoveDir.applyQuaternion(state.tank.quaternion);
+                    airMoveDir.normalize();
+                    // Add air strafe influence (doesn't override, just nudges)
+                    const airAccel = (TANK_SPEED + state.bhopSpeed) * AIR_CONTROL * deltaTime * 2;
+                    state.velocity.x += airMoveDir.x * airAccel;
+                    state.velocity.z += airMoveDir.z * airAccel;
                 }
             }
 
